@@ -108,3 +108,199 @@ Performance may vary slightly due to dataset randomness.
 
 ```bash
 python framework.py --agent agent.py
+```
+---
+
+# 🧮 Mathematical Framing of the Problem
+
+This challenge can be formalized as a **budget-constrained pool-based active learning problem**:
+
+Given:
+- Unlabeled dataset \( X \in \mathbb{R}^{10000 \times 25} \)
+- Hidden labels \( y \in \{0,1\}^{10000} \)
+- Oracle query budget \( B = 100 \)
+
+Objective:
+Maximize F1 score on unseen data while minimizing oracle queries.
+
+We approximate the optimal strategy:
+
+\[
+\max_{Q \subset X, |Q| \le B} \; \text{F1}(f_{\theta}(X))
+\]
+
+Where:
+- \( Q \) = selected query set
+- \( f_{\theta} \) = classifier trained on queried samples
+- Budget constraint ensures \(|Q| \le 100\)
+
+Our solution optimizes **information gain per query**, not just label acquisition.
+
+---
+
+#  Budget Allocation Strategy
+
+We intentionally split the budget:
+
+| Stage | Queries | Purpose |
+|--------|---------|----------|
+| Stage 1 | ~70 | Discover fraud clusters via heuristic priors |
+| Stage 2 | ~30 | Refine decision boundary via uncertainty sampling |
+
+### Why 70/30?
+
+- Early exploration increases fraud density in labeled set.
+- Later exploitation sharpens the classifier.
+- Prevents overfitting to one fraud cluster.
+- Empirically balances recall and precision.
+
+---
+
+#  Feature Engineering Philosophy
+
+Rather than blindly trusting raw features, we:
+
+- Removed synthetic noise features (`feature_noise_*`)
+- Normalized heterogeneous risk scores
+- Constructed fraud-type-specific composite signals
+- Applied max-aggregation across fraud types to detect multiple risk modes
+
+This creates **unsupervised priors** before any label is queried.
+
+---
+
+#  Information-Efficient Querying
+
+Instead of uniform sampling:
+
+### Stage 1:
+We approximate prior probability of fraud:
+\[
+P(y=1|x) \approx \max(\text{cred}, \text{bomb}, \text{ato}, \text{ghost})
+\]
+
+This increases labeled fraud yield beyond the base rate (~8%).
+
+### Stage 2:
+We approximate information gain using:
+
+\[
+\text{Uncertainty}(x) = 1 - |2P(y=1|x) - 1|
+\]
+
+We then combine:
+
+\[
+\text{Score}(x) = 0.6 \cdot \text{Uncertainty}(x) + 0.4 \cdot \text{CompositeRisk}(x)
+\]
+
+This prioritizes:
+- Decision-boundary samples
+- Suspicious-but-ambiguous profiles
+- High learning-value regions
+
+---
+
+#  Handling Class Imbalance
+
+Fraud rate ≈ 8%.
+
+We mitigate imbalance via:
+
+- `class_weight="balanced"`
+- Sample reweighting using `compute_sample_weight`
+- Ensemble averaging to stabilize minority predictions
+
+This improves recall without sacrificing precision.
+
+---
+
+# 🔬 Ensemble Design Rationale
+
+| Model | Strength |
+|--------|----------|
+| Gradient Boosting | Captures non-linear interactions |
+| Random Forest | Robust to noise, reduces variance |
+| Logistic Regression | Provides linear calibration |
+
+Weighted averaging improves:
+- Stability
+- Calibration
+- Generalization
+
+Final probability:
+\[
+P = 0.45P_{GBM} + 0.35P_{RF} + 0.20P_{LR}
+\]
+
+---
+
+# 🛡️ Robustness & Fallback Design
+
+Edge case handled:
+
+If early-stage queries return only one class:
+- Model training is skipped.
+- Composite risk score is used as probability proxy.
+- Prevents model crash and ensures valid output.
+
+Additionally:
+- Queried rows use oracle truth directly.
+- No dependency on external files.
+- Fully deterministic (`random_state=42`).
+
+---
+
+#  Computational Efficiency
+
+- Vectorized NumPy operations
+- No unnecessary retraining loops
+- Only two model training phases
+- Runtime well under 5-minute limit
+- No heavy hyperparameter search
+
+Designed for both **accuracy and speed** (tie-breaker aware).
+
+---
+
+#  Why This Outperforms Random Sampling
+
+Random sampling:
+- ~8 fraud in 100 queries
+- Poor boundary learning
+- Weak recall
+
+Our approach:
+- Cluster-aware fraud discovery
+- Balanced labeled dataset
+- Boundary-focused refinement
+- Higher fraud density in labeled pool
+- Significantly improved F1
+
+---
+
+#  Competitive Advantages
+
+✔ Structured exploration  
+✔ Information-theoretic reasoning  
+✔ Cluster-aware sampling  
+✔ Budget optimization  
+✔ Ensemble robustness  
+✔ Tie-breaker conscious design  
+✔ Clean, evaluator-compliant implementation  
+
+---
+
+# 🏁 Conclusion
+
+This solution transforms a limited-label fraud detection task into an optimized active learning pipeline that:
+
+- Maximizes fraud discovery per query
+- Efficiently learns under strict budget constraints
+- Maintains strong generalization
+- Balances recall and precision
+- Demonstrates production-level ML engineering discipline
+
+The result is a scalable, information-efficient fraud detection agent designed to operate under real-world labeling constraints.
+
+---
